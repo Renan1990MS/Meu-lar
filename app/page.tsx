@@ -12,6 +12,11 @@ interface Conta {
   origem?: "salario" | "vale";
 }
 
+interface UsuarioLocal {
+  nome: string;
+  senha: string;
+}
+
 type Origem = "salario" | "vale";
 type Filtro = "todas" | "pendentes" | "pagas" | "atrasadas";
 
@@ -23,6 +28,8 @@ type Modal =
 const CHAVE_CONTAS = "minhas_contas_casa_v3";
 const CHAVE_SALARIOS = "meus_salarios_casa_v1";
 const CHAVE_VALES = "meus_vales_casa_v1";
+const CHAVE_USUARIO = "meu_lar_usuario_v1";
+const CHAVE_LOGADO = "meu_lar_sessao_ativa_v1";
 
 const getMesAtual = () => {
   const d = new Date();
@@ -95,17 +102,17 @@ function Botao({
   type?: "button" | "submit";
 }) {
   const estilos = {
-    primary: "bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-lg shadow-emerald-500/15",
-    secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200",
+    primary: "bg-emerald-500 text-slate-950 hover:bg-emerald-400 active:scale-[0.98] shadow-lg shadow-emerald-500/15",
+    secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200 active:scale-[0.98]",
     ghost: "bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900",
-    danger: "bg-red-50 text-red-600 hover:bg-red-100",
+    danger: "bg-red-50 text-red-600 hover:bg-red-100 active:scale-[0.98]",
   };
 
   return (
     <button
       type={type}
       onClick={onClick}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition duration-200 cursor-pointer ${estilos[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 sm:py-2.5 text-sm font-semibold transition duration-200 cursor-pointer ${estilos[variant]} ${className}`}
     >
       {children}
     </button>
@@ -133,18 +140,26 @@ function Indicador({
   };
 
   return (
-    <Card className="p-5 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{titulo}</p>
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-lg">{icone}</span>
+    <Card className="p-4 sm:p-5 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">{titulo}</p>
+        <span className="flex h-8 w-8 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-base sm:text-lg">{icone}</span>
       </div>
-      <p className={`mt-4 text-2xl font-bold tracking-tight ${cores[cor]}`}>{valor}</p>
-      {detalhe && <p className="mt-1 text-xs text-slate-400">{detalhe}</p>}
+      <p className={`mt-3 sm:mt-4 text-lg sm:text-2xl font-bold tracking-tight ${cores[cor]}`}>{valor}</p>
+      {detalhe && <p className="mt-1 text-[11px] sm:text-xs text-slate-400">{detalhe}</p>}
     </Card>
   );
 }
 
 export default function ControleContas() {
+  // Estados de Autenticação
+  const [usuarioSalvo, setUsuarioSalvo] = useState<UsuarioLocal | null>(null);
+  const [autenticado, setAutenticado] = useState(false);
+  const [loginNome, setLoginNome] = useState("");
+  const [loginSenha, setLoginSenha] = useState("");
+  const [erroLogin, setErroLogin] = useState("");
+
+  // Estados Financeiros
   const [todasContas, setTodasContas] = useState<Conta[]>([]);
   const [salarios, setSalarios] = useState<Record<string, number>>({});
   const [vales, setVales] = useState<Record<string, number>>({});
@@ -168,6 +183,20 @@ export default function ControleContas() {
       setMesSelecionado(mesAtualStr);
       setDataVencimento(getDataHoje());
 
+      // Carrega usuário e sessão
+      const userJson = localStorage.getItem(CHAVE_USUARIO);
+      const sessaoAtiva = localStorage.getItem(CHAVE_LOGADO);
+
+      if (userJson) {
+        const parsedUser: UsuarioLocal = JSON.parse(userJson);
+        setUsuarioSalvo(parsedUser);
+        setLoginNome(parsedUser.nome);
+        if (sessaoAtiva === "true") {
+          setAutenticado(true);
+        }
+      }
+
+      // Carrega contas e rendas
       const contasSalvas = localStorage.getItem(CHAVE_CONTAS);
       const contasAntigas = localStorage.getItem("minhas_contas_casa_v2");
 
@@ -206,6 +235,57 @@ export default function ControleContas() {
   useEffect(() => {
     if (carregado) localStorage.setItem(CHAVE_VALES, JSON.stringify(vales));
   }, [vales, carregado]);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErroLogin("");
+
+    const nomeTrim = loginNome.trim();
+    const senhaTrim = loginSenha.trim();
+
+    if (!nomeTrim || !senhaTrim) {
+      setErroLogin("Preencha seu nome e uma senha.");
+      return;
+    }
+
+    if (!usuarioSalvo) {
+      // Primeiro acesso: cria o usuário e entra
+      const novoUsuario = { nome: nomeTrim, senha: senhaTrim };
+      localStorage.setItem(CHAVE_USUARIO, JSON.stringify(novoUsuario));
+      localStorage.setItem(CHAVE_LOGADO, "true");
+      setUsuarioSalvo(novoUsuario);
+      setAutenticado(true);
+      setLoginSenha("");
+    } else {
+      // Já existe cadastro: verifica senha (e permite atualizar o nome se digitado outro)
+      if (senhaTrim === usuarioSalvo.senha) {
+        const usuarioAtualizado = { ...usuarioSalvo, nome: nomeTrim };
+        localStorage.setItem(CHAVE_USUARIO, JSON.stringify(usuarioAtualizado));
+        localStorage.setItem(CHAVE_LOGADO, "true");
+        setUsuarioSalvo(usuarioAtualizado);
+        setAutenticado(true);
+        setLoginSenha("");
+      } else {
+        setErroLogin("Senha incorreta. Tente novamente.");
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.setItem(CHAVE_LOGADO, "false");
+    setAutenticado(false);
+    setLoginSenha("");
+  };
+
+  const handleRedefinirAcesso = () => {
+    if (!window.confirm("Deseja cadastrar um novo nome e nova senha para este aparelho?")) return;
+    localStorage.removeItem(CHAVE_USUARIO);
+    localStorage.setItem(CHAVE_LOGADO, "false");
+    setUsuarioSalvo(null);
+    setLoginNome("");
+    setLoginSenha("");
+    setErroLogin("");
+  };
 
   const contasMes = useMemo(
     () => todasContas.filter((c) => c.mesAno === mesSelecionado),
@@ -378,7 +458,7 @@ export default function ControleContas() {
 
   if (!carregado || !mesSelecionado) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-emerald-400">
+      <div className="flex min-h-screen items-center justify-center bg-[#0b1729] text-emerald-400">
         <div className="text-center">
           <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-emerald-400" />
           <p className="text-sm font-medium">Carregando painel financeiro...</p>
@@ -387,107 +467,241 @@ export default function ControleContas() {
     );
   }
 
-  return (
-    <main className="min-h-screen bg-[#f4f7f8] text-slate-800">
-      {/* BARRA SUPERIOR */}
-      <header className="border-b border-white/10 bg-[#0b1729] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 px-5 py-6 sm:flex-row sm:items-center sm:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400 text-2xl text-slate-950 shadow-lg shadow-emerald-400/20">
+  // TELA DE LOGIN / ACESSO
+  if (!autenticado) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-[#0b1729] px-4 py-10 text-white">
+        <div className="w-full max-w-md space-y-6">
+          <div className="flex flex-col items-center text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-400 text-3xl text-slate-950 shadow-xl shadow-emerald-400/20">
               🏠
             </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">Finanças da Casa<span className="text-emerald-400">.</span></h1>
-              <p className="text-xs tracking-wide text-slate-400">CONTROLE DOMÉSTICO FAMILIAR</p>
+            <h1 className="mt-4 text-2xl font-bold tracking-tight">
+              Finanças da Casa<span className="text-emerald-400">.</span>
+            </h1>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-slate-400">
+              Controle Doméstico Financeiro
+            </p>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 sm:p-8 shadow-2xl backdrop-blur-md">
+            <div className="mb-6">
+              <h2 className="text-lg font-bold text-white">
+                {usuarioSalvo ? `Bem-vindo ao painel financeiro!` : "Criar seu acesso"}
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                {usuarioSalvo
+                  ? "Digite sua senha para acessar o painel financeiro."
+                  : "Informe seu nome e crie uma senha para personalizar seu painel."}
+              </p>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Seu Nome
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: nome do usuário"
+                  value={loginNome}
+                  onChange={(e) => setLoginNome(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder-slate-500 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
+                  required
+                  autoFocus={!usuarioSalvo}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  {usuarioSalvo ? "Sua Senha" : "Escolha uma Senha"}
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={loginSenha}
+                  onChange={(e) => setLoginSenha(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder-slate-500 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
+                  required
+                  autoFocus={!!usuarioSalvo}
+                />
+              </div>
+
+              {erroLogin && (
+                <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs font-medium text-red-300">
+                  {erroLogin}
+                </p>
+              )}
+
+              <Botao type="submit" variant="primary" className="w-full py-3.5 text-sm font-bold">
+                {usuarioSalvo ? "Entrar no Painel →" : "Salvar e Acessar →"}
+              </Botao>
+            </form>
+
+            {usuarioSalvo && (
+              <div className="mt-5 border-t border-white/10 pt-4 text-center">
+                <button
+                  type="button"
+                  onClick={handleRedefinirAcesso}
+                  className="text-xs text-slate-400 hover:text-emerald-400 transition cursor-pointer"
+                >
+                  Trocar usuário ou redefinir senha
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const badgeStatus = {
+    pago: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+    pendente: "bg-amber-50 text-amber-700 border border-amber-200",
+    atrasada: "bg-red-50 text-red-700 border border-red-200",
+  };
+
+  const primeiroNome = usuarioSalvo?.nome.split(" ")[0] || "Usuário";
+  const inicialNome = primeiroNome.charAt(0).toUpperCase();
+
+  return (
+    <main className="min-h-screen bg-[#f4f7f8] pb-12 text-slate-800">
+      {/* BARRA SUPERIOR */}
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0b1729]/95 text-white backdrop-blur-md">
+        <div className="flex w-full flex-col justify-between gap-4 px-4 py-4 sm:flex-row sm:items-center sm:px-6 lg:px-10 sm:py-5">
+          {/* LINHA 1 NO MOBILE: LOGO À ESQUERDA + PERFIL DO USUÁRIO À DIREITA */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-400 text-xl sm:text-2xl text-slate-950 shadow-lg shadow-emerald-400/20">
+                🏠
+              </div>
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold tracking-tight">Finanças da Casa<span className="text-emerald-400">.</span></h1>
+                <p className="text-[10px] sm:text-xs tracking-wide text-slate-400">CONTROLE DOMÉSTICO FAMILIAR</p>
+              </div>
+            </div>
+
+            {/* PERFIL NO CANTO SUPERIOR DIREITO (MOBILE) */}
+            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 sm:hidden">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-400/20 text-xs font-bold text-emerald-400">
+                {inicialNome}
+              </div>
+              <div className="text-left">
+                <p className="max-w-[85px] truncate text-xs font-semibold text-white">{primeiroNome}</p>
+                <button
+                  onClick={handleLogout}
+                  className="block text-[10px] text-slate-400 hover:text-red-400 cursor-pointer"
+                >
+                  Sair
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+          {/* CONTROLES DE DATA, MÊS E PERFIL DESKTOP */}
+          <div className="flex items-center justify-between gap-2 sm:justify-end sm:gap-3 lg:gap-4">
+            <div className="hidden rounded-xl border border-white/10 bg-white/5 px-4 py-2 lg:block">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Hoje</p>
               <p className="text-sm font-medium">
                 {new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
               </p>
             </div>
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-1.5">
-              <button onClick={() => mudarMes(-1)} className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 cursor-pointer font-bold">‹</button>
+
+            <div className="flex w-full sm:w-auto items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 p-1">
+              <button onClick={() => mudarMes(-1)} className="rounded-lg px-4 py-2 text-lg text-slate-300 hover:bg-white/10 active:bg-white/20 cursor-pointer font-bold">‹</button>
               <span className="min-w-32 text-center text-sm font-semibold capitalize">{nomeMes(mesSelecionado)}</span>
-              <button onClick={() => mudarMes(1)} className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 cursor-pointer font-bold">›</button>
+              <button onClick={() => mudarMes(1)} className="rounded-lg px-4 py-2 text-lg text-slate-300 hover:bg-white/10 active:bg-white/20 cursor-pointer font-bold">›</button>
+            </div>
+
+            {/* PERFIL NO CANTO SUPERIOR DIREITO (DESKTOP) */}
+            <div className="hidden sm:flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-400/20 text-sm font-bold text-emerald-400">
+                {inicialNome}
+              </div>
+              <div className="text-left">
+                <p className="text-xs font-semibold text-white">Olá, {primeiroNome}</p>
+                <button
+                  onClick={handleLogout}
+                  className="block text-[10px] text-slate-400 hover:text-red-400 transition cursor-pointer"
+                >
+                  Sair da conta
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-8 px-5 py-8 sm:px-8">
-        {/* BOAS-VINDAS */}
+      <div className="mx-auto max-w-7xl space-y-6 sm:space-y-8 px-4 py-6 sm:px-8 sm:py-8">
+        {/* BOAS-VINDAS E BOTÃO PRINCIPAL */}
         <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Visão geral</p>
-            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+            <h2 className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
               Controle do Mês
             </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              Gerencie receitas, despesas e acompanhe o orçamento de {nomeMes(mesSelecionado)}.
+            <p className="mt-1 text-xs sm:text-sm text-slate-500">
+              Orçamento familiar de <span className="capitalize font-medium text-slate-700">{nomeMes(mesSelecionado)}</span>.
             </p>
           </div>
-          <Botao onClick={() => abrirConta("salario")}>
+          <Botao onClick={() => abrirConta("salario")} className="w-full sm:w-auto">
             <span className="text-lg">＋</span> Adicionar conta
           </Botao>
         </section>
 
         {/* SALDO PRINCIPAL */}
-        <section className="rounded-3xl bg-[#0b1729] p-6 text-white shadow-xl shadow-slate-900/10 sm:p-8">
-          <div className="grid gap-8 lg:grid-cols-[1.3fr_1fr]">
+        <section className="rounded-3xl bg-[#0b1729] p-5 text-white shadow-xl shadow-slate-900/10 sm:p-8">
+          <div className="grid gap-6 lg:gap-8 lg:grid-cols-[1.3fr_1fr]">
             <div>
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-300">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
                 Saldo livre previsto (Sobra)
               </div>
-              <p className={`mt-4 text-4xl font-bold tracking-tight sm:text-5xl ${saldoLivre >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+              <p className={`mt-3 sm:mt-4 text-3xl sm:text-5xl font-bold tracking-tight ${saldoLivre >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {moeda(saldoLivre)}
               </p>
-              <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-400">
+              <p className="mt-2 sm:mt-3 max-w-md text-xs sm:text-sm leading-relaxed text-slate-400">
                 {saldoLivre >= 0
-                  ? "Este é o valor estimado que sobra após quitar todas as contas cadastradas."
+                  ? "Valor estimado que sobra após quitar todas as contas cadastradas."
                   : "Atenção: As despesas cadastradas superam a renda informada neste mês."}
               </p>
 
-              <div className="mt-8 flex flex-wrap gap-3">
-                <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                  <p className="text-xs text-slate-400">Total Recebido</p>
-                  <p className="mt-1 font-bold text-white">{moeda(totalRecebido)}</p>
+              <div className="mt-6 sm:mt-8 grid grid-cols-2 sm:flex sm:flex-wrap gap-3">
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3.5 py-3">
+                  <p className="text-[11px] sm:text-xs text-slate-400">Total Recebido</p>
+                  <p className="mt-1 text-sm sm:text-base font-bold text-white">{moeda(totalRecebido)}</p>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                  <p className="text-xs text-slate-400">Total Despesas</p>
-                  <p className="mt-1 font-bold text-white">{moeda(totalContas)}</p>
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3.5 py-3">
+                  <p className="text-[11px] sm:text-xs text-slate-400">Total Despesas</p>
+                  <p className="mt-1 text-sm sm:text-base font-bold text-white">{moeda(totalContas)}</p>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-col justify-center rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+            <div className="flex flex-col justify-center rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:p-5">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">Comprometimento da Renda</p>
-                <span className="text-lg font-bold text-emerald-400">{percentualDespesas.toFixed(0)}%</span>
+                <p className="text-xs sm:text-sm font-semibold">Comprometimento da Renda</p>
+                <span className="text-base sm:text-lg font-bold text-emerald-400">{percentualDespesas.toFixed(0)}%</span>
               </div>
-              <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-700">
+              <div className="mt-3 sm:mt-4 h-2.5 sm:h-3 overflow-hidden rounded-full bg-slate-700">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-300 transition-all duration-500"
                   style={{ width: `${percentualDespesas}%` }}
                 />
               </div>
-              <p className="mt-3 text-xs leading-relaxed text-slate-400">
+              <p className="mt-2.5 sm:mt-3 text-[11px] sm:text-xs leading-relaxed text-slate-400">
                 {totalRecebido > 0
                   ? `${moeda(totalContas)} comprometidos de ${moeda(totalRecebido)} previstos.`
                   : "Cadastre seu salário e vale para ver o comprometimento."}
               </p>
-              <div className="mt-6 grid grid-cols-2 gap-3 border-t border-white/10 pt-5">
+              <div className="mt-4 sm:mt-6 grid grid-cols-2 gap-3 border-t border-white/10 pt-4 sm:pt-5">
                 <div>
-                  <p className="text-xs text-slate-400">Já Pagas</p>
-                  <p className="mt-1 text-lg font-bold text-emerald-400">{moeda(totalPagas)}</p>
+                  <p className="text-[11px] sm:text-xs text-slate-400">Já Pagas</p>
+                  <p className="mt-1 text-base sm:text-lg font-bold text-emerald-400">{moeda(totalPagas)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">A Pagar</p>
-                  <p className="mt-1 text-lg font-bold text-amber-300">{moeda(totalPendente)}</p>
+                  <p className="text-[11px] sm:text-xs text-slate-400">A Pagar</p>
+                  <p className="mt-1 text-base sm:text-lg font-bold text-amber-300">{moeda(totalPendente)}</p>
                 </div>
               </div>
             </div>
@@ -495,38 +709,38 @@ export default function ControleContas() {
         </section>
 
         {/* INDICADORES */}
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Indicador titulo="Total Recebido" valor={moeda(totalRecebido)} detalhe="Salário + Vale" cor="blue" icone="💰" />
-          <Indicador titulo="Total de Contas" valor={moeda(totalContas)} detalhe={`${contasMes.length} contas no mês`} cor="white" icone="📋" />
-          <Indicador titulo="Contas Pagas" valor={moeda(totalPagas)} detalhe={`${quantidadePagas} quitadas`} cor="green" icone="✅" />
-          <Indicador titulo="Contas em Atraso" valor={String(quantidadeAtrasadas)} detalhe={`${quantidadePendentes} pendentes`} cor={quantidadeAtrasadas ? "red" : "green"} icone="⚠️" />
+        <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          <Indicador titulo="Recebido" valor={moeda(totalRecebido)} detalhe="Salário + Vale" cor="blue" icone="💰" />
+          <Indicador titulo="Contas" valor={moeda(totalContas)} detalhe={`${contasMes.length} no mês`} cor="white" icone="📋" />
+          <Indicador titulo="Pagas" valor={moeda(totalPagas)} detalhe={`${quantidadePagas} quitadas`} cor="green" icone="✅" />
+          <Indicador titulo="Em Atraso" valor={String(quantidadeAtrasadas)} detalhe={`${quantidadePendentes} pendentes`} cor={quantidadeAtrasadas ? "red" : "green"} icone="⚠️" />
         </section>
 
         {/* RECEITAS (SALÁRIO E VALE) */}
         <section>
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div className="mb-3 sm:mb-4 flex flex-wrap items-end justify-between gap-2">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">Entradas</p>
-              <h3 className="mt-1 text-xl font-bold text-slate-900">Salário e Vale</h3>
+              <h3 className="mt-0.5 text-lg sm:text-xl font-bold text-slate-900">Salário e Vale</h3>
             </div>
-            <p className="text-xs text-slate-400">Referente a {nomeMes(mesSelecionado)}</p>
+            <p className="text-xs text-slate-400 capitalize">{nomeMes(mesSelecionado)}</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card className="overflow-hidden">
-              <div className="flex items-center justify-between border-b border-slate-100 p-5">
+              <div className="flex items-center justify-between border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-xl">💵</div>
+                  <div className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl bg-blue-50 text-lg sm:text-xl">💵</div>
                   <div>
-                    <p className="font-bold text-slate-900">Salário (Principal)</p>
-                    <p className="text-xs text-slate-400">Pagamento mensal</p>
+                    <p className="text-sm sm:text-base font-bold text-slate-900">Salário (Principal)</p>
+                    <p className="text-[11px] sm:text-xs text-slate-400">Pagamento mensal</p>
                   </div>
                 </div>
-                <Botao variant="secondary" onClick={() => abrirRenda("salario")}>Editar</Botao>
+                <Botao variant="secondary" onClick={() => abrirRenda("salario")} className="px-3 py-2 text-xs sm:text-sm">Editar</Botao>
               </div>
-              <div className="p-5">
-                <p className="text-3xl font-bold tracking-tight text-slate-900">{moeda(salarioAtual)}</p>
-                <div className="mt-4 flex items-center justify-between text-xs">
+              <div className="p-4 sm:p-5">
+                <p className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">{moeda(salarioAtual)}</p>
+                <div className="mt-3 sm:mt-4 flex items-center justify-between text-xs">
                   <span className="text-slate-400">Contas vinculadas</span>
                   <span className="font-semibold text-slate-700">{moeda(totalSalario)}</span>
                 </div>
@@ -543,19 +757,19 @@ export default function ControleContas() {
             </Card>
 
             <Card className="overflow-hidden">
-              <div className="flex items-center justify-between border-b border-slate-100 p-5">
+              <div className="flex items-center justify-between border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-xl">💳</div>
+                  <div className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl bg-violet-50 text-lg sm:text-xl">💳</div>
                   <div>
-                    <p className="font-bold text-slate-900">Vale (Adiantamento)</p>
-                    <p className="text-xs text-slate-400">Receita quinzenal</p>
+                    <p className="text-sm sm:text-base font-bold text-slate-900">Vale (Adiantamento)</p>
+                    <p className="text-[11px] sm:text-xs text-slate-400">Receita quinzenal</p>
                   </div>
                 </div>
-                <Botao variant="secondary" onClick={() => abrirRenda("vale")}>Editar</Botao>
+                <Botao variant="secondary" onClick={() => abrirRenda("vale")} className="px-3 py-2 text-xs sm:text-sm">Editar</Botao>
               </div>
-              <div className="p-5">
-                <p className="text-3xl font-bold tracking-tight text-slate-900">{moeda(valeAtual)}</p>
-                <div className="mt-4 flex items-center justify-between text-xs">
+              <div className="p-4 sm:p-5">
+                <p className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">{moeda(valeAtual)}</p>
+                <div className="mt-3 sm:mt-4 flex items-center justify-between text-xs">
                   <span className="text-slate-400">Contas vinculadas</span>
                   <span className="font-semibold text-slate-700">{moeda(totalVale)}</span>
                 </div>
@@ -573,23 +787,27 @@ export default function ControleContas() {
           </div>
         </section>
 
-        {/* TABELA DE CONTAS */}
+        {/* LISTA / TABELA DE CONTAS */}
         <section>
-          <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">Despesas</p>
-              <h3 className="mt-1 text-xl font-bold text-slate-900">Lista de Contas</h3>
-              <p className="mt-1 text-sm text-slate-500">Controle o pagamento de cada despesa da casa.</p>
+              <h3 className="mt-0.5 text-lg sm:text-xl font-bold text-slate-900">Lista de Contas</h3>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Botao variant="secondary" onClick={() => importarMesAnterior("salario")}>↶ Copiar Salário do mês anterior</Botao>
-              <Botao variant="secondary" onClick={() => importarMesAnterior("vale")}>↶ Copiar Vale do mês anterior</Botao>
+            <div className="grid grid-cols-2 sm:flex gap-2">
+              <Botao variant="secondary" onClick={() => importarMesAnterior("salario")} className="px-3 py-2.5 text-xs">
+                ↶ Copiar Salário
+              </Botao>
+              <Botao variant="secondary" onClick={() => importarMesAnterior("vale")} className="px-3 py-2.5 text-xs">
+                ↶ Copiar Vale
+              </Botao>
             </div>
           </div>
 
           <Card className="overflow-hidden">
-            <div className="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap gap-2">
+            {/* BARRA DE FILTROS */}
+            <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="grid grid-cols-4 sm:flex sm:flex-wrap gap-1.5 sm:gap-2">
                 {[
                   ["todas", "Todas"],
                   ["pendentes", "Pendentes"],
@@ -599,7 +817,7 @@ export default function ControleContas() {
                   <button
                     key={chave}
                     onClick={() => setFiltro(chave as Filtro)}
-                    className={`rounded-xl px-4 py-2 text-xs font-semibold transition cursor-pointer ${filtro === chave ? "bg-[#0b1729] text-white shadow-md" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                    className={`rounded-xl px-2 sm:px-4 py-2 text-[11px] sm:text-xs font-semibold transition cursor-pointer text-center ${filtro === chave ? "bg-[#0b1729] text-white shadow-md" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
                   >
                     {label}
                   </button>
@@ -611,12 +829,12 @@ export default function ControleContas() {
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                   placeholder="Buscar conta..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 sm:w-48"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 sm:w-48"
                 />
                 <select
                   value={secaoAtiva}
                   onChange={(e) => setSecaoAtiva(e.target.value as typeof secaoAtiva)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-emerald-400 cursor-pointer"
+                  className="w-full sm:w-auto rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-emerald-400 cursor-pointer"
                 >
                   <option value="todas">Todas as origens</option>
                   <option value="salario">Salário</option>
@@ -625,8 +843,72 @@ export default function ControleContas() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left">
+            {/* VISUALIZAÇÃO MOBILE */}
+            <div className="divide-y divide-slate-100 md:hidden">
+              {contasFiltradas.map((conta) => {
+                const status = obterStatus(conta);
+                return (
+                  <div key={conta.id} className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-slate-900 text-base">{conta.nome}</p>
+                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${(conta.origem || "salario") === "salario" ? "bg-blue-50 text-blue-700" : "bg-violet-50 text-violet-700"}`}>
+                            {(conta.origem || "salario") === "salario" ? "Salário" : "Vale"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Vence em: <strong className="text-slate-700">{formatarData(conta.diaVencimento, conta.mesAno)}</strong>
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-base font-extrabold text-slate-900">{moeda(conta.valor)}</p>
+                        <span className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-[10px] font-bold ${badgeStatus[status]}`}>
+                          {status === "pago" ? "✓ Pago" : status === "atrasada" ? "Atrasada" : "Pendente"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      <button
+                        onClick={() => alternarPago(conta.id)}
+                        className={`rounded-xl py-2.5 text-xs font-bold transition cursor-pointer ${conta.pago ? "bg-slate-100 text-slate-600" : "bg-emerald-600 text-white shadow-xs"}`}
+                      >
+                        {conta.pago ? "Desfazer" : "✓ Pagar"}
+                      </button>
+                      <button
+                        onClick={() => abrirConta(conta.origem || "salario", conta)}
+                        className="rounded-xl bg-blue-50 py-2.5 text-xs font-bold text-blue-700 cursor-pointer"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => excluirConta(conta.id)}
+                        className="rounded-xl bg-red-50 py-2.5 text-xs font-bold text-red-600 cursor-pointer"
+                      >
+                        Excluir
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {contasFiltradas.length === 0 && (
+                <div className="px-6 py-12 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-xl">🔍</div>
+                  <p className="mt-3 font-semibold text-slate-700">Nenhuma conta encontrada</p>
+                  <p className="mt-1 text-xs text-slate-400">Mude os filtros ou cadastre uma nova despesa.</p>
+                  <button onClick={() => { setFiltro("todas"); setBusca(""); setSecaoAtiva("todas"); }} className="mt-3 text-xs font-semibold text-emerald-600 underline cursor-pointer">
+                    Limpar filtros
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* VISUALIZAÇÃO DESKTOP */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left">
                 <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   <tr>
                     <th className="px-6 py-4">Conta / Despesa</th>
@@ -640,12 +922,6 @@ export default function ControleContas() {
                 <tbody className="divide-y divide-slate-100">
                   {contasFiltradas.map((conta) => {
                     const status = obterStatus(conta);
-                    const cores = {
-                      pago: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-                      pendente: "bg-amber-50 text-amber-700 border border-amber-200",
-                      atrasada: "bg-red-50 text-red-700 border border-red-200",
-                    };
-
                     return (
                       <tr key={conta.id} className="transition hover:bg-slate-50/80">
                         <td className="px-6 py-4">
@@ -660,21 +936,20 @@ export default function ControleContas() {
                         <td className="px-6 py-4 text-sm text-slate-600">{formatarData(conta.diaVencimento, conta.mesAno)}</td>
                         <td className="px-6 py-4 text-sm font-bold text-slate-800">{moeda(conta.valor)}</td>
                         <td className="px-6 py-4">
-                          <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${cores[status]}`}>
+                          <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${badgeStatus[status]}`}>
                             {status === "pago" ? "✓ Pago" : status === "atrasada" ? "Atrasada" : "Pendente"}
                           </span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex justify-end gap-1.5">
                             <button
-                              title={conta.pago ? "Desfazer pagamento" : "Marcar como paga"}
                               onClick={() => alternarPago(conta.id)}
                               className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${conta.pago ? "bg-slate-100 text-slate-600 hover:bg-slate-200" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}
                             >
                               {conta.pago ? "Desfazer" : "Pagar"}
                             </button>
-                            <button title="Editar conta" onClick={() => abrirConta(conta.origem || "salario", conta)} className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 cursor-pointer">Editar</button>
-                            <button title="Excluir conta" onClick={() => excluirConta(conta.id)} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 cursor-pointer">Excluir</button>
+                            <button onClick={() => abrirConta(conta.origem || "salario", conta)} className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 cursor-pointer">Editar</button>
+                            <button onClick={() => excluirConta(conta.id)} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 cursor-pointer">Excluir</button>
                           </div>
                         </td>
                       </tr>
@@ -695,8 +970,8 @@ export default function ControleContas() {
               </table>
             </div>
 
-            <div className="flex flex-col justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-4 text-xs text-slate-500 sm:flex-row">
-              <span>Exibindo {contasFiltradas.length} de {contasMes.length} contas no mês</span>
+            <div className="flex flex-col justify-between gap-1 border-t border-slate-100 bg-slate-50/70 px-4 sm:px-5 py-3.5 text-xs text-slate-500 sm:flex-row">
+              <span>Exibindo {contasFiltradas.length} de {contasMes.length} contas</span>
               <span>Total listado: <strong className="text-slate-800">{moeda(contasFiltradas.reduce((a, c) => a + c.valor, 0))}</strong></span>
             </div>
           </Card>
@@ -705,13 +980,13 @@ export default function ControleContas() {
 
       {/* MODAL DE CONTA */}
       {modal?.tipo === "conta" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-          <Card className="w-full max-w-md p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 p-0 sm:p-4">
+          <Card className="w-full max-w-md rounded-b-none sm:rounded-2xl p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <h3 className="text-lg font-bold text-slate-900">
                 {modal.conta ? "Editar Conta" : "Nova Conta"}
               </h3>
-              <button onClick={() => setModal(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer">✕</button>
+              <button onClick={() => setModal(null)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer">✕</button>
             </div>
 
             <form onSubmit={salvarConta} className="mt-4 space-y-4">
@@ -720,7 +995,7 @@ export default function ControleContas() {
                 <select
                   value={origemConta}
                   onChange={(e) => setOrigemConta(e.target.value as Origem)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 cursor-pointer font-medium"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 cursor-pointer font-medium"
                 >
                   <option value="salario">Salário (Principal)</option>
                   <option value="vale">Vale (Adiantamento)</option>
@@ -734,7 +1009,7 @@ export default function ControleContas() {
                   placeholder="Ex: Aluguel, Supermercado..."
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                   required
                   autoFocus
                 />
@@ -745,10 +1020,11 @@ export default function ControleContas() {
                 <input
                   type="number"
                   step="0.01"
+                  inputMode="decimal"
                   placeholder="0,00"
                   value={valor}
                   onChange={(e) => setValor(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                   required
                 />
               </div>
@@ -759,7 +1035,7 @@ export default function ControleContas() {
                   type="date"
                   value={dataVencimento}
                   onChange={(e) => setDataVencimento(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 cursor-pointer"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 cursor-pointer"
                   required
                 />
               </div>
@@ -775,13 +1051,13 @@ export default function ControleContas() {
 
       {/* MODAL DE RENDA */}
       {modal?.tipo === "renda" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-          <Card className="w-full max-w-sm p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 p-0 sm:p-4">
+          <Card className="w-full max-w-sm rounded-b-none sm:rounded-2xl p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <h3 className="text-lg font-bold text-slate-900">
                 Editar {modal.origem === "salario" ? "Salário" : "Vale"}
               </h3>
-              <button onClick={() => setModal(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer">✕</button>
+              <button onClick={() => setModal(null)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer">✕</button>
             </div>
 
             <form onSubmit={salvarRenda} className="mt-4 space-y-4">
@@ -790,10 +1066,11 @@ export default function ControleContas() {
                 <input
                   type="number"
                   step="0.01"
+                  inputMode="decimal"
                   placeholder="0,00"
                   value={rendaInput}
                   onChange={(e) => setRendaInput(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                   required
                   autoFocus
                 />
